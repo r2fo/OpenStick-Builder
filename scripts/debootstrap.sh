@@ -93,43 +93,59 @@ chmod +x ${CHROOT}/usr/sbin/wifi-ap.sh
 
 cp -a scripts/msm-firmware-loader.sh ${CHROOT}/usr/sbin
 
-# Install MSM8916 kernel from the current postmarketOS index
+# Install MSM8916 kernel from postmarketOS
 KERNEL_REPO="https://mirror.nura.eco/postmarketos/main/aarch64"
+KERNEL_PKG="linux-postmarketos-qcom-msm8916"
+
 INDEX_TMP=$(mktemp)
 APK_TMP=$(mktemp)
 
 wget -qO "$INDEX_TMP" "$KERNEL_REPO/APKINDEX.tar.gz"
 
-KERNEL_APK_NAME=$(
+KERNEL_VERSION=$(
     tar -xOzf "$INDEX_TMP" APKINDEX |
-    awk -F: '
-        $1 == "P" {
-            wanted = ($2 == "linux-postmarketos-qcom-msm8916")
-            next
-        }
-        wanted && $1 == "F" {
-            print $2
-            exit
+    tr -d '\r' |
+    awk -v target="$KERNEL_PKG" '
+        BEGIN { RS=""; FS="\n" }
+        {
+            name = version = arch = ""
+            for (i = 1; i <= NF; i++) {
+                if (substr($i, 1, 2) == "P:")
+                    name = substr($i, 3)
+                else if (substr($i, 1, 2) == "V:")
+                    version = substr($i, 3)
+                else if (substr($i, 1, 2) == "A:")
+                    arch = substr($i, 3)
+            }
+            if (name == target && arch == "aarch64" && version != "") {
+                print version
+                exit
+            }
         }
     '
 )
 
-if [ -z "$KERNEL_APK_NAME" ]; then
-    echo "ERROR: MSM8916 kernel package not found in APKINDEX" >&2
-    tar -xOzf "$INDEX_TMP" APKINDEX |
-        grep -n -A15 -B2 'P:linux-postmarketos-qcom-msm8916' || true
+if [ -z "$KERNEL_VERSION" ]; then
+    echo "ERROR: Kernel package not found" >&2
     rm -f "$INDEX_TMP" "$APK_TMP"
     exit 1
 fi
 
-echo "Downloading kernel package: $KERNEL_APK_NAME"
-wget -qO "$APK_TMP" "$KERNEL_REPO/$KERNEL_APK_NAME"
+KERNEL_APK_NAME="$KERNEL_PKG-$KERNEL_VERSION.apk"
+echo "Selected kernel package: $KERNEL_APK_NAME"
 
-# Reject an incomplete or unreadable archive
-tar -tzf "$APK_TMP" >/dev/null
+if ! wget -qO "$APK_TMP" "$KERNEL_REPO/$KERNEL_APK_NAME"; then
+    echo "ERROR: Kernel download failed" >&2
+    rm -f "$INDEX_TMP" "$APK_TMP"
+    exit 1
+fi
 
-tar xkzf "$APK_TMP" -C "$CHROOT" \
-    --exclude=.PKGINFO --exclude='.SIGN*'
+tar --warning=no-unknown-keyword -tzf "$APK_TMP" >/dev/null
+
+tar --warning=no-unknown-keyword -xkzf "$APK_TMP" \
+    -C "$CHROOT" \
+    --exclude=.PKGINFO \
+    --exclude='.SIGN*'
 
 rm -f "$INDEX_TMP" "$APK_TMP"
 
