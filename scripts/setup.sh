@@ -52,6 +52,7 @@ apt install -qqy --no-install-recommends \
     socat \
     sudo \
     systemd-timesyncd \
+    systemd-resolved \
     tor \
     tzdata \
     unzip \
