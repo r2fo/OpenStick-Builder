@@ -93,7 +93,7 @@ chmod +x ${CHROOT}/usr/sbin/wifi-ap.sh
 
 cp -a scripts/msm-firmware-loader.sh ${CHROOT}/usr/sbin
 
-# Install the current MSM8916 kernel package
+# Install MSM8916 kernel from the current postmarketOS index
 KERNEL_REPO="https://mirror.nura.eco/postmarketos/main/aarch64"
 INDEX_TMP=$(mktemp)
 APK_TMP=$(mktemp)
@@ -102,28 +102,30 @@ wget -qO "$INDEX_TMP" "$KERNEL_REPO/APKINDEX.tar.gz"
 
 KERNEL_APK_NAME=$(
     tar -xOzf "$INDEX_TMP" APKINDEX |
-    awk -v RS='' '
-        $1 == "P:linux-postmarketos-qcom-msm8916" {
-            for (i = 1; i <= NF; i++) {
-                if ($i ~ /^F:/) {
-                    sub(/^F:/, "", $i)
-                    print $i
-                    exit
-                }
-            }
+    awk -F: '
+        $1 == "P" {
+            wanted = ($2 == "linux-postmarketos-qcom-msm8916")
+            next
+        }
+        wanted && $1 == "F" {
+            print $2
+            exit
         }
     '
 )
 
 if [ -z "$KERNEL_APK_NAME" ]; then
-    echo "ERROR: MSM8916 kernel package not found" >&2
+    echo "ERROR: MSM8916 kernel package not found in APKINDEX" >&2
+    tar -xOzf "$INDEX_TMP" APKINDEX |
+        grep -n -A15 -B2 'P:linux-postmarketos-qcom-msm8916' || true
+    rm -f "$INDEX_TMP" "$APK_TMP"
     exit 1
 fi
 
 echo "Downloading kernel package: $KERNEL_APK_NAME"
 wget -qO "$APK_TMP" "$KERNEL_REPO/$KERNEL_APK_NAME"
 
-# Check that the downloaded file is a readable archive
+# Reject an incomplete or unreadable archive
 tar -tzf "$APK_TMP" >/dev/null
 
 tar xkzf "$APK_TMP" -C "$CHROOT" \
